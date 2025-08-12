@@ -1,14 +1,21 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
-    # Database
-    DATABASE_URL: str = "postgresql://user:password@localhost/weatherdb"
-    
+    # Database connection parts
+    DB_USER: str = "postgres"
+    DB_PASS: str = "postgres"
+    DB_HOST: str = "localhost"
+    DB_PORT: int = 5432
+    DB_NAME: str = "weather_app"
+
+    @property
+    def sqlalchemy_url(self) -> str:
+        return f"postgresql+psycopg2://{self.DB_USER}:{self.DB_PASS}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+
     # API
     API_V1_STR: str = "/api/v1"
     PROJECT_NAME: str = "Weather API"
-    
-    class Config:
-        env_file = ".env"
 
-settings = Settings() 
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+
+settings = Settings()

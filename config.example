@@ -1,5 +1,9 @@
 # Database Configuration
-DATABASE_URL=sqlite:///./weather_app.db
+    DB_USER: str = "postgres"
+    DB_PASS: str = "postgres"
+    DB_HOST: str = "localhost"
+    DB_PORT: int = 5432
+    DB_NAME: str = "weather_app"
 
 # API Keys
 OPENWEATHER_API_KEY=your_openweather_api_key_here
