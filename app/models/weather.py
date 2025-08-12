@@ -1,54 +1,32 @@
-from sqlalchemy import Column, Integer, String, DateTime, Float, Text, JSON
+from sqlalchemy import Column, Integer, String, DateTime, Float, Text, JSON, ForeignKey
 from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
 from app.db.base_class import Base
 
-"""
-Hourly weather schema with normalized locations.
-- Location: canonical place info (name, region, lat/lon)
-- WeatherObservation: hourly temperature per location (UTC), composite PK (location_id, ts)
-
-NOTE: Table partitioning by year will be added via Alembic raw SQL; the ORM
-model below represents only the parent table.
-"""
-from sqlalchemy import (
-    Column,
-    BigInteger,
-    Text,
-    Float,
-    DateTime,
-    Numeric,
-    PrimaryKeyConstraint,
-    func,
-)
-from app.db.session import Base
-
-
 class Location(Base):
-    __tablename__ = "location"
+    __tablename__ = "locations"
 
-    location_id = Column(BigInteger, primary_key=True, index=True)
-    name = Column(Text, nullable=False)            # e.g., "San Francisco"
-    country_code = Column(Text)                    # ISO-2 like 'US'
-    admin1 = Column(Text)                          # state/province, e.g., 'CA'
-    latitude = Column(Float, nullable=False)
-    longitude = Column(Float, nullable=False)
-    external_source = Column(Text)                 # optional (e.g., 'geocoder')
-    external_id = Column(Text)                     # optional stable external id
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
-
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False, index=True)
+    country = Column(String, nullable=True)
+    admin1 = Column(String, nullable=True)  # State/province
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 class WeatherObservation(Base):
-    __tablename__ = "weather_observation"
+    __tablename__ = "weather_observations"
 
-    # Composite PK: (location_id, ts)
-    location_id = Column(BigInteger, nullable=False, index=True)
-    ts = Column(DateTime(timezone=True), nullable=False, index=True)   # hourly timestamp (UTC)
-    temp_c = Column(Numeric(5, 2), nullable=False)                     # temperature in Celsius
-    source = Column(Text)                                              # e.g., 'NOAA', 'ERA5'
-    inserted_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    id = Column(Integer, primary_key=True, index=True)
+    location_id = Column(Integer, ForeignKey("locations.id"), nullable=False)
+    ts = Column(DateTime(timezone=True), nullable=False)  # timestamp
+    temp_c = Column(Float, nullable=False)  # temperature in Celsius
+    source = Column(String, nullable=True)  # data source
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
-    __table_args__ = (
-        PrimaryKeyConstraint("location_id", "ts", name="pk_weather_observation"),
-    )
+    # Relationships
+    location = relationship("Location", back_populates="observations")
+
+# Add relationship to Location
+Location.observations = relationship("WeatherObservation", back_populates="location")
