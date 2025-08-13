@@ -6,7 +6,7 @@ from app.models.weather import Location
 from typing import List, Optional
 from pydantic import BaseModel
 
-router = APIRouter()
+router = APIRouter(tags=["locations"])
 
 class LocationSearchResponse(BaseModel):
     id: int
@@ -15,6 +15,13 @@ class LocationSearchResponse(BaseModel):
     admin1: Optional[str]
     latitude: Optional[float]
     longitude: Optional[float]
+
+class LocationCreateRequest(BaseModel):
+    name: str
+    country: Optional[str] = None
+    admin1: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 @router.get("/locations/search", response_model=List[LocationSearchResponse])
 async def search_locations(
@@ -57,28 +64,24 @@ async def search_locations(
 
 @router.post("/locations/create")
 async def create_location(
-    name: str,
-    country: Optional[str] = None,
-    admin1: Optional[str] = None,
-    latitude: Optional[float] = None,
-    longitude: Optional[float] = None,
+    data: LocationCreateRequest,
     db: Session = Depends(get_db)
 ):
     """Create a new location"""
     # Check if location already exists
     existing = db.query(Location).filter(
-        func.lower(Location.name) == func.lower(name)
+        func.lower(Location.name) == func.lower(data.name)
     ).first()
     
     if existing:
         raise HTTPException(status_code=400, detail="Location already exists")
     
     location = Location(
-        name=name,
-        country=country,
-        admin1=admin1,
-        latitude=latitude,
-        longitude=longitude
+        name=data.name,
+        country=data.country,
+        admin1=data.admin1,
+        latitude=data.latitude,
+        longitude=data.longitude
     )
     
     db.add(location)
