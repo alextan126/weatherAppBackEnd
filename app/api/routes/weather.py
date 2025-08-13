@@ -51,7 +51,7 @@ class LocationSearchResponse(BaseModel):
     longitude: Optional[float]
 #TODO: Missing the data collection logic: 
 #User search the db, if db doesn't have the data, send API
-#to fill the data and return the data from db
+#to fill the data and return the data from db. not supported right now because OpenWeather Free Tier no usable.
 
 @router.post("/weather/query")
 async def create_weather_query(

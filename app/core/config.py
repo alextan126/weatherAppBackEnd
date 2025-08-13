@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import Optional
 
 class Settings(BaseSettings):
     # Database connection parts
@@ -11,6 +12,9 @@ class Settings(BaseSettings):
     @property
     def sqlalchemy_url(self) -> str:
         return f"postgresql+psycopg2://{self.DB_USER}:{self.DB_PASS}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+
+     # OpenWeather API
+    OPENWEATHER_API_KEY:  Optional[str] = None
 
     # API
     API_V1_STR: str = "/api/v1"

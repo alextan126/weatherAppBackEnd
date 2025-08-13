@@ -1,17 +1,117 @@
 import httpx
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
+from datetime import datetime, timezone
 from app.core.config import settings
+import logging
 
+logger = logging.getLogger(__name__)
 
-class WeatherService:
+class OpenWeatherService:
     def __init__(self):
-        self.api_key = settings.OPENWEATHER_API_KEY
+        self.api_key = getattr(settings, 'OPENWEATHER_API_KEY', None)
         self.base_url = "https://api.openweathermap.org/data/2.5"
+        
+        if not self.api_key:
+            logger.warning("OpenWeather API key not configured")
+    
+    async def search_location(self, query: str) -> Optional[Dict[str, Any]]:
+        """Search for a location using OpenWeather Geocoding API"""
+        if not self.api_key:
+            return None
+            
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    "http://api.openweathermap.org/geo/1.0/direct",
+                    params={
+                        "q": query,
+                        "limit": 5,
+                        "appid": self.api_key
+                    }
+                )
+                response.raise_for_status()
+                data = response.json()
+                
+                if data:
+                    # Return the first (most relevant) result
+                    location = data[0]
+                    return {
+                        "name": location["name"],
+                        "country": location["country"],
+                        "admin1": location.get("state"),
+                        "latitude": location["lat"],
+                        "longitude": location["lon"]
+                    }
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error searching location: {e}")
+            return None
+    
+    async def get_historical_weather(
+        self, 
+        lat: float, 
+        lon: float, 
+        start_ts: datetime, 
+        end_ts: datetime
+    ) -> Optional[List[Dict[str, Any]]]:
+        """Get historical weather data from OpenWeather API"""
+        if not self.api_key:
+            return None
+            
+        try:
+            # OpenWeather historical data requires Unix timestamps
+            start_unix = int(start_ts.timestamp())
+            end_unix = int(end_ts.timestamp())
+            
+            # Get data for each day in range (OpenWeather provides daily data)
+            observations = []
+            current_ts = start_unix
+            
+            while current_ts <= end_unix:
+                current_date = datetime.fromtimestamp(current_ts, tz=timezone.utc)
+                
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(
+                        f"{self.base_url}/onecall/timemachine",
+                        params={
+                            "lat": lat,
+                            "lon": lon,
+                            "dt": current_ts,
+                            "appid": self.api_key,
+                            "units": "metric"  # Use Celsius
+                        }
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    
+                    # Extract hourly data for this day
+                    if "hourly" in data:
+                        for hour_data in data["hourly"]:
+                            hour_ts = datetime.fromtimestamp(hour_data["dt"], tz=timezone.utc)
+                            
+                            # Only include data within our requested range
+                            if start_ts <= hour_ts <= end_ts:
+                                observations.append({
+                                    "ts": hour_ts,
+                                    "temp_c": hour_data["temp"],
+                                    "source": "openweather_api"
+                                })
+                
+                # Move to next day (86400 seconds = 24 hours)
+                current_ts += 86400
+                
+            return observations
+            
+        except Exception as e:
+            logger.error(f"Error fetching historical weather: {e}")
+            return None
     
     async def get_current_weather(self, lat: float, lon: float) -> Optional[Dict[str, Any]]:
-        """
-        Get current weather for given coordinates
-        """
+        """Get current weather data"""
+        if not self.api_key:
+            return None
+            
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.get(
@@ -21,138 +121,22 @@ class WeatherService:
                         "lon": lon,
                         "appid": self.api_key,
                         "units": "metric"
-                    },
-                    timeout=10.0
+                    }
                 )
                 response.raise_for_status()
+                data = response.json()
                 
-                return response.json()
-                
-        except Exception as e:
-            print(f"Error getting current weather: {e}")
-            return None
-    
-    async def get_forecast(self, lat: float, lon: float, days: int = 5) -> Optional[Dict[str, Any]]:
-        """
-        Get weather forecast for given coordinates
-        """
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    f"{self.base_url}/forecast",
-                    params={
-                        "lat": lat,
-                        "lon": lon,
-                        "appid": self.api_key,
-                        "units": "metric",
-                        "cnt": days * 8  # 8 forecasts per day (3-hour intervals)
-                    },
-                    timeout=10.0
-                )
-                response.raise_for_status()
-                
-                return response.json()
-                
-        except Exception as e:
-            print(f"Error getting forecast: {e}")
-            return None
-    
-    async def get_historical_weather(self, lat: float, lon: float, dt: int) -> Optional[Dict[str, Any]]:
-        """
-        Get historical weather for given coordinates and timestamp
-        """
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    f"{self.base_url}/onecall/timemachine",
-                    params={
-                        "lat": lat,
-                        "lon": lon,
-                        "appid": self.api_key,
-                        "units": "metric",
-                        "dt": dt
-                    },
-                    timeout=10.0
-                )
-                response.raise_for_status()
-                
-                return response.json()
-                
-        except Exception as e:
-            print(f"Error getting historical weather: {e}")
-            return None
-    
-    def parse_weather_data(self, weather_data: Dict[str, Any], request_type: str) -> Dict[str, Any]:
-        """
-        Parse weather API response into standardized format
-        """
-        if request_type == "current":
-            return self._parse_current_weather(weather_data)
-        elif request_type == "forecast":
-            return self._parse_forecast_weather(weather_data)
-        elif request_type == "historical":
-            return self._parse_historical_weather(weather_data)
-        else:
-            return weather_data
-    
-    def _parse_current_weather(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Parse current weather data"""
-        try:
-            return {
-                "temperature": data.get("main", {}).get("temp"),
-                "humidity": data.get("main", {}).get("humidity"),
-                "pressure": data.get("main", {}).get("pressure"),
-                "wind_speed": data.get("wind", {}).get("speed"),
-                "wind_direction": data.get("wind", {}).get("deg"),
-                "description": data.get("weather", [{}])[0].get("description"),
-                "icon": data.get("weather", [{}])[0].get("icon"),
-                "raw_data": data
-            }
-        except Exception as e:
-            print(f"Error parsing current weather: {e}")
-            return {"raw_data": data}
-    
-    def _parse_forecast_weather(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Parse forecast weather data"""
-        try:
-            # Return first forecast entry as representative
-            if data.get("list") and len(data["list"]) > 0:
-                first_forecast = data["list"][0]
                 return {
-                    "temperature": first_forecast.get("main", {}).get("temp"),
-                    "humidity": first_forecast.get("main", {}).get("humidity"),
-                    "pressure": first_forecast.get("main", {}).get("pressure"),
-                    "wind_speed": first_forecast.get("wind", {}).get("speed"),
-                    "wind_direction": first_forecast.get("wind", {}).get("deg"),
-                    "description": first_forecast.get("weather", [{}])[0].get("description"),
-                    "icon": first_forecast.get("weather", [{}])[0].get("icon"),
-                    "forecast_date": first_forecast.get("dt_txt"),
-                    "raw_data": data
+                    "temp_c": data["main"]["temp"],
+                    "humidity": data["main"]["humidity"],
+                    "pressure": data["main"]["pressure"],
+                    "description": data["weather"][0]["description"],
+                    "icon": data["weather"][0]["icon"]
                 }
-            return {"raw_data": data}
+                
         except Exception as e:
-            print(f"Error parsing forecast weather: {e}")
-            return {"raw_data": data}
-    
-    def _parse_historical_weather(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Parse historical weather data"""
-        try:
-            if data.get("data") and len(data["data"]) > 0:
-                historical = data["data"][0]
-                return {
-                    "temperature": historical.get("temp"),
-                    "humidity": historical.get("humidity"),
-                    "pressure": historical.get("pressure"),
-                    "wind_speed": historical.get("wind_speed"),
-                    "wind_direction": historical.get("wind_deg"),
-                    "description": historical.get("weather", [{}])[0].get("description"),
-                    "icon": historical.get("weather", [{}])[0].get("icon"),
-                    "raw_data": data
-                }
-            return {"raw_data": data}
-        except Exception as e:
-            print(f"Error parsing historical weather: {e}")
-            return {"raw_data": data}
+            logger.error(f"Error fetching current weather: {e}")
+            return None
 
-
-weather_service = WeatherService() 
+# Global instance
+weather_service = OpenWeatherService() 
